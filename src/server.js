@@ -17,7 +17,7 @@ app.listen(PORT, () => console.log(`🌍 Web server is running on port ${PORT}`)
 // --- 1. KESH, NAVBAT VA SOZLAMALAR ---
 const statsCache = { users: new Map(), downloads: new Map() };
 const activeTasks = new Set();
-const REQUIRED_CHANNEL = "@sizning_kanalingiz"; // 🔴 SHU YERGA KANALINGIZ YUZERINI YOZING! (masalan: @my_channel)
+const REQUIRED_CHANNEL = "https://t.me/EchoesOfPeace_1"; // 🔴 SHU YERGA KANALINGIZ YUZERINI YOZING! (masalan: @my_channel)
 
 if (!config.token) {
   console.error("🚨 XATO: BOT_TOKEN topilmadi!");
