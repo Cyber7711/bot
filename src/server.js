@@ -5,6 +5,18 @@ const config = require("./config");
 const youtubeService = require("./services/youtube.service");
 const User = require("./models/User");
 const fs = require("fs");
+const express = require("express");
+const app = express();
+
+const PORT = process.env.PORT || 3000;
+
+app.get("/", (req, res) => {
+  res.send("Bot is running...");
+});
+
+app.listen(PORT, () => {
+  console.log(`Web server is running on port ${PORT}`);
+});
 
 // --- 1. KESH VA NAVBAT TIZIMI ---
 const statsCache = { users: new Map(), downloads: new Map() };
