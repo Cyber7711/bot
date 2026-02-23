@@ -1,0 +1,7 @@
+.env
+youtube-cookies.json
+node_modules
+.env
+cookies.txt
+*.m4a
+*.mp4
