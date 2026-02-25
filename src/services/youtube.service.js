@@ -1,48 +1,41 @@
-const ytdl = require("@distube/ytdl-core");
+const axios = require("axios");
 const fs = require("fs");
 const path = require("path");
 const os = require("os");
 
+// Cobalt API - Video/Audio yuklash uchun eng barqaror server
+const COBALT_API = "https://api.cobalt.tools/api/json";
+
 // --- 🛠 MAXSUS XATO YOZUVCHI FUNKSIYA ---
 const logError = (context, error) => {
   console.error(`\n❌ [YouTube Service - ${context}] Xatolik yuz berdi!`);
-  console.error(`👉 Sabab: ${error.message}`);
-  if (error.statusCode) console.error(`📡 Status Code: ${error.statusCode}`);
+  console.error(`👉 Sabab: ${error.message || error}`);
   console.error(`--------------------------------------------------\n`);
-};
-
-// --- 🛡 YOUTUBE BLOKLARINI AYLANIB O'TISH ---
-const agent = ytdl.createAgent();
-const antiBlockOptions = {
-  agent,
-  // YouTube'ni aldash: Web brauzer emas, faqat mobil ilovalar orqali ma'lumot so'raymiz
-  playerClients: ["ANDROID", "IOS", "WEB_EMBEDDED"],
-  requestOptions: {
-    headers: {
-      "User-Agent":
-        "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36",
-    },
-  },
 };
 
 const getVideoInfo = async (url) => {
   try {
-    console.log(`🔍 Ma'lumot qidirilmoqda (Mobil Niqob bilan): ${url}`);
+    console.log(`🔍 Ma'lumot qidirilmoqda (OEmbed orqali): ${url}`);
 
-    // antiBlockOptions ni qo'shamiz
-    const info = await ytdl.getInfo(url, antiBlockOptions);
-    const details = info.videoDetails;
+    // OEmbed API - Hech qachon bloklanmaydi, "Sign in" so'ramaydi
+    const oembedUrl = `https://www.youtube.com/oembed?url=${encodeURIComponent(url)}&format=json`;
+    const { data } = await axios.get(oembedUrl);
+
+    // URL'dan Video ID ni ajratib olish
+    const videoIdMatch = url.match(
+      /(?:youtu\.be\/|youtube\.com\/(?:.*v=|.*\/|.*vi=|.*v%3D))([\w-]{11})/,
+    );
+    const videoId = videoIdMatch ? videoIdMatch[1] : Date.now().toString();
 
     return {
-      id: details.videoId,
-      title: details.title,
-      author: details.author.name,
-      duration: parseInt(details.lengthSeconds) || 0,
+      id: videoId,
+      title: data.title || "YouTube Video",
+      author: data.author_name || "Noma'lum",
+      duration: null, // OEmbed davomiylikni bermaydi, biz buni botda yashiramiz
       thumbnail:
-        details.thumbnails && details.thumbnails.length > 0
-          ? details.thumbnails[details.thumbnails.length - 1].url
-          : "https://via.placeholder.com/640x360.png?text=No+Thumbnail",
-      url: details.video_url,
+        data.thumbnail_url ||
+        "https://via.placeholder.com/640x360.png?text=YouTube",
+      url: url,
     };
   } catch (error) {
     logError("getVideoInfo", error);
@@ -50,21 +43,31 @@ const getVideoInfo = async (url) => {
   }
 };
 
-const getYouTubeStream = (url) => {
+const getYouTubeStream = async (url, quality = "720") => {
   try {
-    console.log(`🎬 Video stream tayyorlanmoqda...`);
+    console.log(`🎬 Cobalt orqali video yuklanmoqda... (${quality}p)`);
 
-    const stream = ytdl(url, {
-      ...antiBlockOptions,
-      filter: "audioandvideo",
-      quality: "highest",
-      highWaterMark: 1 << 25, // 32 MB buffer
-    });
+    const response = await axios.post(
+      COBALT_API,
+      {
+        url: url,
+        videoQuality: quality, // 360, 720, 1080 va hokazo
+        filenameStyle: "basic",
+      },
+      {
+        headers: {
+          Accept: "application/json",
+          "Content-Type": "application/json",
+        },
+      },
+    );
 
-    stream.on("error", (err) => logError("getYouTubeStream (Uzildi)", err));
-    return stream;
+    if (response.data && response.data.url) {
+      return response.data.url; // Cobalt to'g'ridan-to'g'ri tayyor MP4 link beradi!
+    }
+    throw new Error("Cobalt serverdan URL qaytmadi.");
   } catch (error) {
-    logError("getYouTubeStream (Boshlashda xato)", error);
+    logError("getYouTubeStream", error);
     throw error;
   }
 };
@@ -72,51 +75,62 @@ const getYouTubeStream = (url) => {
 const downloadAudio = async (url, videoId) => {
   const filePath = path.join(os.tmpdir(), `${videoId}.m4a`);
 
-  return new Promise((resolve, reject) => {
-    try {
-      console.log(`🎵 Audio yuklanmoqda...`);
+  try {
+    console.log(`🎵 Cobalt orqali audio tayyorlanmoqda...`);
 
-      const stream = ytdl(url, {
-        ...antiBlockOptions,
-        filter: "audioonly",
-        quality: "highestaudio",
+    const response = await axios.post(
+      COBALT_API,
+      {
+        url: url,
+        isAudioOnly: true,
+        audioFormat: "m4a", // Telegram uchun eng yaxshi format
+        filenameStyle: "basic",
+      },
+      {
+        headers: {
+          Accept: "application/json",
+          "Content-Type": "application/json",
+        },
+      },
+    );
+
+    if (response.data && response.data.url) {
+      console.log(`📥 Audio fayl yuklab olinmoqda...`);
+      // Faylni serverga (Render) vaqtinchalik yuklab olamiz
+      const audioStream = await axios.get(response.data.url, {
+        responseType: "stream",
       });
       const writer = fs.createWriteStream(filePath);
 
-      stream.pipe(writer);
+      audioStream.data.pipe(writer);
 
-      stream.on("error", (err) => {
-        logError("downloadAudio (YouTube xatosi)", err);
-        reject(err);
+      return new Promise((resolve, reject) => {
+        writer.on("finish", () => {
+          console.log(`✅ Audio tayyor: ${filePath}`);
+          resolve(filePath);
+        });
+        writer.on("error", (err) => {
+          logError("downloadAudio (Faylga yozish)", err);
+          reject(err);
+        });
       });
-
-      writer.on("error", (err) => {
-        logError("downloadAudio (Faylga yozish xatosi)", err);
-        reject(err);
-      });
-
-      writer.on("finish", () => {
-        console.log(`✅ Audio tayyor: ${filePath}`);
-        resolve(filePath);
-      });
-    } catch (error) {
-      logError("downloadAudio (Asosiy xato)", error);
-      reject(error);
     }
-  });
+    throw new Error("Cobalt serverdan Audio URL qaytmadi.");
+  } catch (error) {
+    logError("downloadAudio", error);
+    throw error;
+  }
 };
 
-// Inline qidiruv buzilmasligi uchun bo'sh (dummy) funksiya
+// Dummy search function
 const searchVideos = async (query) => {
-  return []; // ytdl-core faqat link bilan ishlaydi
+  return [];
 };
 
 const isValidYouTubeUrl = (url) => {
-  try {
-    return ytdl.validateURL(url);
-  } catch (error) {
-    return false;
-  }
+  return /^(https?:\/\/)?(www\.)?(youtube\.com|youtu\.be|m\.youtube\.com|shorts)\/.+$/.test(
+    url,
+  );
 };
 
 module.exports = {

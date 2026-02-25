@@ -17,7 +17,7 @@ app.listen(PORT, () => console.log(`🌍 Web server is running on port ${PORT}`)
 // --- 1. KESH VA SOZLAMALAR ---
 const statsCache = { users: new Map(), downloads: new Map() };
 const activeTasks = new Set();
-const REQUIRED_CHANNEL = "@EchoesOfPeace_1"; // Sizning kanalingiz
+const REQUIRED_CHANNEL = "@EchoesOfPeace_1";
 
 if (!config.token) {
   console.error("🚨 XATO: BOT_TOKEN topilmadi!");
@@ -32,7 +32,7 @@ const bot = new Telegraf(config.token, botOptions);
 // --- 2. DATABASE ---
 mongoose
   .connect(config.dbUri)
-  .then(() => console.log("✅ MongoDB Atlas (Cloud) ulandi!"))
+  .then(() => console.log("✅ MongoDB Atlas ulandi!"))
   .catch((err) => console.error("❌ Baza xatosi:", err));
 
 // --- 3. YORDAMCHI FUNKSIYALAR ---
@@ -51,14 +51,6 @@ function logToCache(ctx, isDownload = false) {
     const current = statsCache.downloads.get(id) || 0;
     statsCache.downloads.set(id, current + 1);
   }
-}
-
-function formatTime(seconds) {
-  if (!seconds) return "Noma'lum";
-  return new Date(seconds * 1000)
-    .toISOString()
-    .slice(11, 19)
-    .replace(/^00:/, "");
 }
 
 setInterval(
@@ -209,7 +201,6 @@ bot.on(
   ["message", "photo", "video", "audio", "document"],
   async (ctx, next) => {
     if (!activeTasks.has("mailing_" + ctx.from.id)) return next();
-
     if (ctx.message?.text === "/cancel") {
       activeTasks.delete("mailing_" + ctx.from.id);
       return ctx.reply("❌ Reklama bekor qilindi.");
@@ -265,17 +256,17 @@ bot.on("text", async (ctx) => {
         ctx.chat.id,
         statusMsg.message_id,
         null,
-        "❌ Video yopiq yoki topilmadi.",
+        "❌ Video topilmadi (Yopiq yoki o'chirilgan bo'lishi mumkin).",
       );
 
     await ctx.replyWithPhoto(info.thumbnail, {
-      caption: `🎬 <b>${info.title}</b>\n👤 <b>Kanal:</b> ${info.author}\n⏱ <b>Vaqti:</b> ${formatTime(info.duration)}\n\n👇 <i>Formatni tanlang:</i>`,
+      caption: `🎬 <b>${info.title}</b>\n👤 <b>Kanal:</b> ${info.author}\n\n👇 <i>Formatni tanlang:</i>`,
       parse_mode: "HTML",
       reply_markup: {
         inline_keyboard: [
           [
-            { text: "🎬 Video (Kichik)", callback_data: `vid_360_${info.id}` },
-            { text: "🎬 Video (HD)", callback_data: `vid_720_${info.id}` },
+            { text: "🎬 Video (360p)", callback_data: `vid_360_${info.id}` },
+            { text: "🎬 Video (720p)", callback_data: `vid_720_${info.id}` },
           ],
           [
             {
@@ -310,21 +301,20 @@ bot.action(/^vid_(360|720)_(.+)/, async (ctx) => {
   );
 
   try {
-    const stream = youtubeService.getYouTubeStream(url);
+    // Cobalt bizga to'g'ridan to'g'ri MP4 linkini beradi
+    const videoUrl = await youtubeService.getYouTubeStream(url, quality);
     const info = await youtubeService.getVideoInfo(url);
 
-    await ctx.replyWithVideo(
-      { source: stream },
-      {
-        caption: `🎬 <b>${info.title}</b>\n🤖 @${ctx.botInfo.username}`,
-        parse_mode: "HTML",
-      },
-    );
+    // Telegram'ga o'sha linkni yuboramiz, Telegram uni o'zi tortib oladi (Juda tez!)
+    await ctx.replyWithVideo(videoUrl, {
+      caption: `🎬 <b>${info.title}</b>\n🤖 @${ctx.botInfo.username}`,
+      parse_mode: "HTML",
+    });
     logToCache(ctx, true);
     await ctx.deleteMessage().catch(() => {});
   } catch (e) {
     ctx.reply(
-      "❌ Videoni yuklab bo'lmadi (Hajmi 50MB dan katta bo'lishi mumkin).",
+      "❌ Videoni yuklab bo'lmadi (Yopiq video yoki hajmi juda katta).",
     );
   } finally {
     activeTasks.delete(ctx.from.id);
@@ -354,7 +344,6 @@ bot.action(/^aud_(.+)/, async (ctx) => {
       {
         title: info.title,
         performer: info.author,
-        duration: info.duration,
         thumb: { url: info.thumbnail },
         caption: `🎵 <b>${info.title}</b>\n\n🤖 @${ctx.botInfo.username}`,
         parse_mode: "HTML",
