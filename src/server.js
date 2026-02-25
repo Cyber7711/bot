@@ -10,14 +10,14 @@ const app = express();
 
 const PORT = process.env.PORT || 3000;
 
-// --- 0. WEB SERVER (Bot uxlab qolmasligi uchun) ---
+// --- 0. WEB SERVER ---
 app.get("/", (req, res) => res.send("Bot is completely ALIVE and RUNNING! 🚀"));
 app.listen(PORT, () => console.log(`🌍 Web server is running on port ${PORT}`));
 
-// --- 1. KESH, NAVBAT VA SOZLAMALAR ---
+// --- 1. KESH VA SOZLAMALAR ---
 const statsCache = { users: new Map(), downloads: new Map() };
 const activeTasks = new Set();
-const REQUIRED_CHANNEL = "@EchoesOfPeace_1"; // To'g'ri format; // 🔴 SHU YERGA KANALINGIZ YUZERINI YOZING! (masalan: @my_channel)
+const REQUIRED_CHANNEL = "@EchoesOfPeace_1"; // Sizning kanalingiz
 
 if (!config.token) {
   console.error("🚨 XATO: BOT_TOKEN topilmadi!");
@@ -29,7 +29,7 @@ if (config.proxy)
   botOptions.telegram = { agent: new HttpsProxyAgent(config.proxy) };
 const bot = new Telegraf(config.token, botOptions);
 
-// --- 2. DATABASEGA ULANISH ---
+// --- 2. DATABASE ---
 mongoose
   .connect(config.dbUri)
   .then(() => console.log("✅ MongoDB Atlas (Cloud) ulandi!"))
@@ -61,7 +61,6 @@ function formatTime(seconds) {
     .replace(/^00:/, "");
 }
 
-// Bazani har 5 daqiqada yangilash
 setInterval(
   async () => {
     if (statsCache.users.size === 0 && statsCache.downloads.size === 0) return;
@@ -92,11 +91,12 @@ setInterval(
   5 * 60 * 1000,
 );
 
-// --- 🌟 4. MAJBURIY OBUNA (MIDDLEWARE) ---
+// --- 4. MAJBURIY OBUNA ---
 const checkSubscription = async (ctx, next) => {
-  if (ctx.from.id === config.adminId) return next(); // Admin tekshiruvdan ozod
+  if (!ctx.from) return next();
+  if (ctx.from.id === config.adminId) return next();
   if (!REQUIRED_CHANNEL || REQUIRED_CHANNEL === "@sizning_kanalingiz")
-    return next(); // Kanal sozlanmagan bo'lsa
+    return next();
 
   try {
     const member = await ctx.telegram.getChatMember(
@@ -105,7 +105,7 @@ const checkSubscription = async (ctx, next) => {
     );
     if (member.status === "left" || member.status === "kicked") {
       return ctx.reply(
-        `🛑 <b>Botdan foydalanish uchun kanalimizga obuna bo'lishingiz kerak!</b>\n\nIltimos, pastdagi tugma orqali kanalga a'zo bo'ling va qidiruvni davom ettiring.`,
+        `🛑 <b>Botdan foydalanish uchun kanalimizga obuna bo'lishingiz kerak!</b>`,
         {
           parse_mode: "HTML",
           reply_markup: {
@@ -124,7 +124,6 @@ const checkSubscription = async (ctx, next) => {
     }
     return next();
   } catch (error) {
-    // Agar bot kanalga admin bo'lmasa, xato beradi va foydalanuvchini o'tkazib yuboradi
     return next();
   }
 };
@@ -146,7 +145,7 @@ bot.action("check_sub", async (ctx) => {
     });
     await ctx.deleteMessage().catch(() => {});
     await ctx.reply(
-      "👋 Yana bir bor salom! Qanday video yoki audio yuklab olamiz?",
+      "👋 Yana bir bor salom! Menga YouTube link yuboring.",
       mainMenu,
     );
   } catch (e) {
@@ -154,14 +153,13 @@ bot.action("check_sub", async (ctx) => {
   }
 });
 
-// Barcha xabarlarga "Majburiy obuna" tekshiruvini ulaymiz
 bot.use(checkSubscription);
 
-// --- 5. ASOSIY KOMANDALAR ---
+// --- 5. KOMANDALAR ---
 bot.start(async (ctx) => {
   logToCache(ctx);
   await ctx.reply(
-    `👋 <b>Salom, ${ctx.from.first_name}!</b>\n\n🎬 Men YouTube'dan eng yuqori sifatda <b>Video</b> va <b>Audio</b> yuklab beruvchi aqlli botman.\n\n👇 Menga istalgan YouTube yoki Shorts linkini yuboring!`,
+    `👋 <b>Salom, ${ctx.from.first_name}!</b>\n\n🎬 Men YouTube'dan eng yuqori sifatda <b>Video</b> va <b>Audio</b> yuklab beraman.\n\n👇 Menga istalgan YouTube yoki Shorts linkini yuboring!`,
     { parse_mode: "HTML", ...mainMenu },
   );
 });
@@ -169,7 +167,7 @@ bot.start(async (ctx) => {
 bot.command("admin", async (ctx) => {
   if (ctx.from.id !== config.adminId) return;
   await ctx.reply(
-    "👨‍💻 <b>Admin Panel</b>\n/send - Reklama tarqatish\n/stats - Baza statistikasi",
+    "👨‍💻 <b>Admin Panel</b>\n/send - Reklama tarqatish\n/stats - Baza",
     { parse_mode: "HTML" },
   );
 });
@@ -189,8 +187,7 @@ bot.command("stats", async (ctx) => {
 bot.command("send", async (ctx) => {
   if (ctx.from.id !== config.adminId) return;
   await ctx.reply(
-    "📢 <b>Reklama rejimi:</b>\nXabarni yuboring (rasm, video, matn). Bekor qilish: /cancel",
-    { parse_mode: "HTML" },
+    "📢 Xabarni yuboring (rasm, video, matn). Bekor qilish: /cancel",
   );
   activeTasks.add("mailing_" + ctx.from.id);
 });
@@ -204,12 +201,10 @@ bot.hears("📊 Statistikam", async (ctx) => {
 });
 
 bot.hears("📚 Yordam", (ctx) =>
-  ctx.reply("💡 Link yuboring ➡️ Format tanlang ➡️ Yuklab oling!", {
-    parse_mode: "HTML",
-  }),
+  ctx.reply("💡 Link yuboring ➡️ Format tanlang ➡️ Yuklab oling!"),
 );
 
-// --- 6. REKLAMA (BROADCAST) ---
+// --- 6. REKLAMA ---
 bot.on(
   ["message", "photo", "video", "audio", "document"],
   async (ctx, next) => {
@@ -243,7 +238,6 @@ bot.on(
           )
           .catch(() => {});
     }
-
     activeTasks.delete("mailing_" + ctx.from.id);
     ctx.reply(`✅ Tarqatish tugadi! Yetib bordi: <b>${success}</b>`, {
       parse_mode: "HTML",
@@ -251,36 +245,13 @@ bot.on(
   },
 );
 
-// --- 7. INLINE QIDIRUV ---
-bot.on("inline_query", async (ctx) => {
-  const query = ctx.inlineQuery.query;
-  if (!query || query.length < 3) return ctx.answerInlineQuery([]);
-  try {
-    const searchResults = await youtubeService.searchVideos(query);
-    const results = searchResults.map((v) => ({
-      type: "article",
-      id: v.id,
-      title: v.title,
-      description: `👤 ${v.author} | ⏱ ${v.duration}`,
-      thumb_url: v.thumbnail,
-      input_message_content: {
-        message_text: `https://www.youtube.com/watch?v=${v.id}`,
-      },
-    }));
-    await ctx.answerInlineQuery(results, { cache_time: 300 });
-  } catch (e) {}
-});
-
-// --- 8. YOUTUBE LINK QABUL QILISH ---
+// --- 7. YOUTUBE LINK QABUL QILISH ---
 bot.on("text", async (ctx) => {
   const url = ctx.message.text;
   if (!youtubeService.isValidYouTubeUrl(url)) return;
 
   if (activeTasks.has(ctx.from.id))
-    return ctx.reply(
-      "⏳ <b>Iltimos kuting</b>, oldingi jarayon yakunlanmoqda...",
-      { parse_mode: "HTML" },
-    );
+    return ctx.reply("⏳ <b>Iltimos kuting...</b>", { parse_mode: "HTML" });
 
   activeTasks.add(ctx.from.id);
   let statusMsg = await ctx.reply("🔍 <i>Video tahlil qilinmoqda...</i>", {
@@ -298,7 +269,7 @@ bot.on("text", async (ctx) => {
       );
 
     await ctx.replyWithPhoto(info.thumbnail, {
-      caption: `🎬 <b>${info.title}</b>\n👤 <b>Kanal:</b> ${info.author}\n⏱ <b>Vaqti:</b> ${formatTime(info.duration)}\n\n👇 <i>Kerakli formatni tanlang:</i>`,
+      caption: `🎬 <b>${info.title}</b>\n👤 <b>Kanal:</b> ${info.author}\n⏱ <b>Vaqti:</b> ${formatTime(info.duration)}\n\n👇 <i>Formatni tanlang:</i>`,
       parse_mode: "HTML",
       reply_markup: {
         inline_keyboard: [
@@ -323,7 +294,7 @@ bot.on("text", async (ctx) => {
   }
 });
 
-// --- 9. TUGMALAR (VIDEO YUKLASH) ---
+// --- 8. TUGMALAR (VIDEO YUKLASH) ---
 bot.action(/^vid_(360|720)_(.+)/, async (ctx) => {
   if (activeTasks.has(ctx.from.id))
     return ctx.answerCbQuery("⏳ Kuting!", { show_alert: true });
@@ -347,16 +318,6 @@ bot.action(/^vid_(360|720)_(.+)/, async (ctx) => {
       {
         caption: `🎬 <b>${info.title}</b>\n🤖 @${ctx.botInfo.username}`,
         parse_mode: "HTML",
-        reply_markup: {
-          inline_keyboard: [
-            [
-              {
-                text: "⤴️ Do'stlarga ulashish",
-                url: `https://t.me/share/url?url=Ushbu%20botni%20sinab%20ko'ring:%20@${ctx.botInfo.username}`,
-              },
-            ],
-          ],
-        },
       },
     );
     logToCache(ctx, true);
@@ -370,7 +331,7 @@ bot.action(/^vid_(360|720)_(.+)/, async (ctx) => {
   }
 });
 
-// --- 10. TUGMALAR (AUDIO YUKLASH - PRO METADATA) ---
+// --- 9. TUGMALAR (AUDIO YUKLASH) ---
 bot.action(/^aud_(.+)/, async (ctx) => {
   if (activeTasks.has(ctx.from.id))
     return ctx.answerCbQuery("⏳ Kuting!", { show_alert: true });
@@ -388,26 +349,15 @@ bot.action(/^aud_(.+)/, async (ctx) => {
     const info = await youtubeService.getVideoInfo(url);
     const filePath = await youtubeService.downloadAudio(url, videoId);
 
-    // 🔥 PRO AUDIO METADATA
     await ctx.replyWithAudio(
       { source: filePath, filename: `${info.title}.m4a` },
       {
-        title: info.title, // Qo'shiq nomi pleyerda chiqadi
-        performer: info.author, // Ijrochi pleyerda chiqadi
-        duration: info.duration, // Vaqti
-        thumb: { url: info.thumbnail }, // Rasm pleyerda chiqadi
+        title: info.title,
+        performer: info.author,
+        duration: info.duration,
+        thumb: { url: info.thumbnail },
         caption: `🎵 <b>${info.title}</b>\n\n🤖 @${ctx.botInfo.username}`,
         parse_mode: "HTML",
-        reply_markup: {
-          inline_keyboard: [
-            [
-              {
-                text: "🎧 Do'stlarga ulashish",
-                url: `https://t.me/share/url?url=Musiqa%20ko'chirish%20uchun%20zo'r%20bot:%20@${ctx.botInfo.username}`,
-              },
-            ],
-          ],
-        },
       },
     );
     logToCache(ctx, true);
@@ -420,14 +370,12 @@ bot.action(/^aud_(.+)/, async (ctx) => {
   }
 });
 
-// Global Xato ushlagich (Spamlardan himoya)
+// Global Xato ushlagich
 bot.catch(async (err, ctx) => {
   console.log(`Error: ${err.message}`);
-  // Xatolik bersa ham navbatdan o'chirib yuboramiz, tok user qotib qolmasin
   if (ctx && ctx.from) activeTasks.delete(ctx.from.id);
 });
 
-// QOTIB QOLGAN XABARLARNI TOZALAB YOQISH
 bot
   .launch({ dropPendingUpdates: true })
   .then(() => console.log("🚀 BOT TELEGRAMGA MUVAFFAQIYATLI ULANDI!"));

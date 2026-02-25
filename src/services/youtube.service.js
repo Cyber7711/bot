@@ -4,7 +4,6 @@ const path = require("path");
 const os = require("os");
 
 // --- 🛠 MAXSUS XATO YOZUVCHI FUNKSIYA ---
-// Bu loglarda xatoni chiroyli va tushunarli qilib ko'rsatib beradi
 const logError = (context, error) => {
   console.error(`\n❌ [YouTube Service - ${context}] Xatolik yuz berdi!`);
   console.error(`👉 Sabab: ${error.message}`);
@@ -12,10 +11,26 @@ const logError = (context, error) => {
   console.error(`--------------------------------------------------\n`);
 };
 
+// --- 🛡 YOUTUBE BLOKLARINI AYLANIB O'TISH ---
+const agent = ytdl.createAgent();
+const antiBlockOptions = {
+  agent,
+  // YouTube'ni aldash: Web brauzer emas, faqat mobil ilovalar orqali ma'lumot so'raymiz
+  playerClients: ["ANDROID", "IOS", "WEB_EMBEDDED"],
+  requestOptions: {
+    headers: {
+      "User-Agent":
+        "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36",
+    },
+  },
+};
+
 const getVideoInfo = async (url) => {
   try {
-    console.log(`🔍 Ma'lumot qidirilmoqda: ${url}`);
-    const info = await ytdl.getInfo(url);
+    console.log(`🔍 Ma'lumot qidirilmoqda (Mobil Niqob bilan): ${url}`);
+
+    // antiBlockOptions ni qo'shamiz
+    const info = await ytdl.getInfo(url, antiBlockOptions);
     const details = info.videoDetails;
 
     return {
@@ -23,7 +38,6 @@ const getVideoInfo = async (url) => {
       title: details.title,
       author: details.author.name,
       duration: parseInt(details.lengthSeconds) || 0,
-      // Ba'zida video rasmsiz bo'lishi mumkin, shuning uchun xavfsizlik tekshiruvi (fallback)
       thumbnail:
         details.thumbnails && details.thumbnails.length > 0
           ? details.thumbnails[details.thumbnails.length - 1].url
@@ -38,24 +52,20 @@ const getVideoInfo = async (url) => {
 
 const getYouTubeStream = (url) => {
   try {
-    console.log(`🎬 Video oqimi (stream) tayyorlanmoqda: ${url}`);
+    console.log(`🎬 Video stream tayyorlanmoqda...`);
 
     const stream = ytdl(url, {
+      ...antiBlockOptions,
       filter: "audioandvideo",
-      // highestvideo o'rniga highest ishlatamiz, chunki ba'zida highestvideo ovozsiz bo'lib qoladi
       quality: "highest",
-      highWaterMark: 1 << 25, // 32 MB buffer (kattaroq videolar uchun yaxshi)
+      highWaterMark: 1 << 25, // 32 MB buffer
     });
 
-    // Eng muhimi: Oqim (stream) yuklanayotganda uzilib qolsa xatoni ushlash
-    stream.on("error", (err) => {
-      logError("getYouTubeStream (Stream uzildi)", err);
-    });
-
+    stream.on("error", (err) => logError("getYouTubeStream (Uzildi)", err));
     return stream;
   } catch (error) {
     logError("getYouTubeStream (Boshlashda xato)", error);
-    throw error; // Telegram handler xabardor bo'lishi uchun xatoni yuqoriga uzatamiz
+    throw error;
   }
 };
 
@@ -64,9 +74,10 @@ const downloadAudio = async (url, videoId) => {
 
   return new Promise((resolve, reject) => {
     try {
-      console.log(`🎵 Audio yuklash boshlandi: ${url}`);
+      console.log(`🎵 Audio yuklanmoqda...`);
 
       const stream = ytdl(url, {
+        ...antiBlockOptions,
         filter: "audioonly",
         quality: "highestaudio",
       });
@@ -74,21 +85,18 @@ const downloadAudio = async (url, videoId) => {
 
       stream.pipe(writer);
 
-      // 1. YouTube'dan kelayotgan ma'lumot uzilsa
       stream.on("error", (err) => {
-        logError("downloadAudio (YouTube Stream xatosi)", err);
+        logError("downloadAudio (YouTube xatosi)", err);
         reject(err);
       });
 
-      // 2. Server xotirasiga yozishda xato bo'lsa (masalan joy qolmasa)
       writer.on("error", (err) => {
         logError("downloadAudio (Faylga yozish xatosi)", err);
         reject(err);
       });
 
-      // 3. Muvaffaqiyatli yakunlansa
       writer.on("finish", () => {
-        console.log(`✅ Audio muvaffaqiyatli saqlandi: ${filePath}`);
+        console.log(`✅ Audio tayyor: ${filePath}`);
         resolve(filePath);
       });
     } catch (error) {
@@ -96,6 +104,11 @@ const downloadAudio = async (url, videoId) => {
       reject(error);
     }
   });
+};
+
+// Inline qidiruv buzilmasligi uchun bo'sh (dummy) funksiya
+const searchVideos = async (query) => {
+  return []; // ytdl-core faqat link bilan ishlaydi
 };
 
 const isValidYouTubeUrl = (url) => {
@@ -111,4 +124,5 @@ module.exports = {
   downloadAudio,
   isValidYouTubeUrl,
   getVideoInfo,
+  searchVideos,
 };
